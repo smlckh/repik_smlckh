@@ -1,0 +1,52 @@
+"""
+Debug — check what columns and notes are in a partner file on SharePoint
+"""
+import os
+import tempfile
+from urllib.parse import urlparse
+from dotenv import load_dotenv
+import pandas as pd
+from office365.sharepoint.client_context import ClientContext
+from office365.runtime.auth.client_credential import ClientCredential
+
+load_dotenv("config.env")
+
+SHAREPOINT_URL   = os.getenv("SHAREPOINT_URL")
+SP_CLIENT_ID     = os.getenv("SP_CLIENT_ID")
+SP_CLIENT_SECRET = os.getenv("SP_CLIENT_SECRET")
+BASE_FOLDER      = os.getenv("BASE_FOLDER", "Sdilene dokumenty/partner_reports")
+
+# The partner folder name to check — adjust if needed
+PARTNER_FOLDER = "3600 W.A.N. Investment s.r.o."
+OUTPUT_FILENAME = "report_presmluvneni.xlsx"
+
+ctx = ClientContext(SHAREPOINT_URL).with_credentials(
+    ClientCredential(SP_CLIENT_ID, SP_CLIENT_SECRET)
+)
+ctx.web.get().execute_query()
+print("Connected.")
+
+site_path   = urlparse(SHAREPOINT_URL).path.rstrip("/")
+file_url    = f"{site_path}/{BASE_FOLDER}/{PARTNER_FOLDER}/{OUTPUT_FILENAME}"
+
+print(f"Trying to download: {file_url}")
+
+with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+    tmp_path = tmp.name
+
+with open(tmp_path, "wb") as f:
+    ctx.web.get_file_by_server_relative_url(file_url).download(f).execute_query()
+
+df = pd.read_excel(tmp_path)
+os.unlink(tmp_path)
+
+print(f"\nColumns in file:")
+for col in df.columns:
+    print(f"  '{col}'")
+
+print(f"\nPartner Notes column content (non-empty):")
+if "Partner Notes" in df.columns:
+    notes = df[df["Partner Notes"].notna() & (df["Partner Notes"].astype(str).str.strip() != "")]
+    print(notes[["Číslo smlouvy", "Partner Notes"]])
+else:
+    print("  'Partner Notes' column NOT FOUND!")
