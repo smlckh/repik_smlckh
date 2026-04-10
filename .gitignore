@@ -5,4 +5,8 @@ __pycache__/
 *.log
 config.env
 *.log
+upload_log.txt.DS_Store
+partner_hashes.json
+.DS_Store
 upload_log.txt
+bazos_log.txt
