@@ -17,8 +17,6 @@ sh = gc.open("bazos_scraper_table")
 # ==================== NASTAVENÍ Z GOOGLE SHEETS ====================
 setup_ws = sh.worksheet("nastaveni")
 df_kriteria = pd.DataFrame(setup_ws.get_all_records())
-prompt_ws = sh.worksheet("prompt")
-prompt_template = prompt_ws.acell("A1").value
 top_n = 10
 
 # ==================== COOKIES ====================
@@ -46,6 +44,8 @@ for idx, row in df_kriteria.iterrows():
     cenado = row["cena do"]
     klicova_slova_text = row["klicova_slova"]
     anti_slova = row["anti_slova"]
+    prompt_text = row["prompt"]
+    
 
     print(f"\n=== Hledám: {hledat} ===")
 
@@ -59,6 +59,7 @@ for idx, row in df_kriteria.iterrows():
             nadpis = div.find("h2", class_="nadpis")
             if nadpis:
                 zaznam = {
+                    "prompt": row["prompt"],
                     "base_url": base_url,
                     "hledany_vyraz": hledat,
                     "klicova_slova": klicova_slova_text,
@@ -150,36 +151,39 @@ else:
     print(df[["titulek", "cena_cislo", "keyword_score", "hledany_vyraz"]].head())
 
     # ==================== 5. AI SCORING ====================
-    top = df.head(top_n)
     scores = []
 
-    for idx, row in top.iterrows():
-        foto_list = row["foto_urls"][:2] if row["foto_urls"] else []
+    for vyraz in df["hledany_vyraz"].unique():
+        df_group = df[df["hledany_vyraz"] == vyraz]
+        top = df_group.head(top_n)
 
-        content = []
-        for foto_url in foto_list:
-            img_response = requests.get(foto_url)
-            img_base64 = base64.b64encode(img_response.content).decode("utf-8")
-            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_base64}})
+        for idx, row in top.iterrows():
+            foto_list = row["foto_urls"][:2] if row["foto_urls"] else []
 
-        content.append({"type": "text", "text": prompt_template.format(
-    titulek=row['titulek'],
-    cena=row['cena'],
-    mesto=row['mesto'],
-    popis=row['popis_detail']
-    )})
+            content = []
+            for foto_url in foto_list:
+                img_response = requests.get(foto_url)
+                img_base64 = base64.b64encode(img_response.content).decode("utf-8")
+                content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_base64}})
 
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
-            messages=[{"role": "user", "content": content}]
-        )
+            content.append({"type": "text", "text": row["prompt"].format(
+        titulek=row['titulek'],
+        cena=row['cena'],
+        mesto=row['mesto'],
+        popis=row['popis_detail']
+        )})
 
-        ai_text = message.content[0].text
-        scores.append({"full_url": row["full_url"], "ai_hodnoceni": ai_text})
-        print(f"\n{row['titulek']} | {row['cena']}")
-        print(ai_text)
-        time.sleep(1)
+            message = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=300,
+                messages=[{"role": "user", "content": content}]
+            )
+
+            ai_text = message.content[0].text
+            scores.append({"full_url": row["full_url"], "ai_hodnoceni": ai_text})
+            print(f"\n{row['titulek']} | {row['cena']}")
+            print(ai_text)
+            time.sleep(1)
 
     df_scores = pd.DataFrame(scores)
     df_scores["score"] = df_scores["ai_hodnoceni"].str.extract(r"SCORE: (\d+)/10")
