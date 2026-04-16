@@ -190,6 +190,7 @@ else:
     df_scores["score"] = df_scores["score"].astype(int)
 
     df_ranked = df.merge(df_scores, on="full_url", how="left")
+    df_ranked["score"] = pd.to_numeric(df_ranked["score"], errors="coerce")
     df_ranked = df_ranked.sort_values("score", ascending=False)
 
     # ==================== 6. TELEFONY (TOP 5) ====================
@@ -220,6 +221,7 @@ else:
     # ==================== 7. EXPORT DO GOOGLE SHEETS ====================
     if not df_old.empty:
         df_final = pd.concat([df_old, df_ranked])
+        df_final["score"] = pd.to_numeric(df_final["score"], errors="coerce")
         df_final = df_final.drop_duplicates(subset="full_url", keep="last")
         df_final = df_final.sort_values("score", ascending=False)
     else:
