@@ -37,6 +37,7 @@ client = anthropic.Anthropic()
 vsechny = []
 
 for idx, row in df_kriteria.iterrows():
+    base_url = row["base_url"]
     hledat = row["hledat"]
     rubriky = row["rubriky"]
     lokalita = row["lokalita"]
@@ -49,7 +50,7 @@ for idx, row in df_kriteria.iterrows():
     print(f"\n=== Hledám: {hledat} ===")
 
     for i in range(0, 100, 20):
-        url = f"https://nabytek.bazos.cz/{i}/?hledat={hledat}&rubriky={rubriky}&hlokalita={lokalita}&humkreis={humkreis}&cenaod={cenaod}&cenado={cenado}"
+        url = f"{base_url}/{i}/?hledat={hledat}&rubriky={rubriky}&hlokalita={lokalita}&humkreis={humkreis}&cenaod={cenaod}&cenado={cenado}"
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "lxml")
         inzeraty = soup.find_all("div", class_="inzeraty")
@@ -58,6 +59,7 @@ for idx, row in df_kriteria.iterrows():
             nadpis = div.find("h2", class_="nadpis")
             if nadpis:
                 zaznam = {
+                    "base_url": base_url,
                     "hledany_vyraz": hledat,
                     "klicova_slova": klicova_slova_text,
                     "anti_slova": anti_slova,
@@ -82,7 +84,13 @@ df["cena_cislo"] = df["cena"].str.replace("Kč", "").str.replace(" ", "").str.st
 df["cena_cislo"] = pd.to_numeric(df["cena_cislo"], errors="coerce")
 df["mesto"] = df["lokalita"].str.split("|").str[0].str.strip()
 df["psc"] = df["lokalita"].str.split("|").str[1].str.strip()
-df["full_url"] = "https://nabytek.bazos.cz" + df["url"]
+def make_full_url(row):
+    if row["url"].startswith("http"):
+        return row["url"]
+    else:
+        return row["base_url"] + row["url"]
+
+df["full_url"] = df.apply(make_full_url, axis=1)
 
 df = df.drop_duplicates(subset="full_url")
 print(f"Po deduplikaci: {len(df)} inzerátů")
@@ -192,7 +200,7 @@ else:
             idi = params.split("&")[0].split("=")[1]
             idphone = params.split("&")[1].split("=")[1]
             tel_response = session.post(
-                "https://nabytek.bazos.cz/ad-phone.php",
+                row["base_url"] + "/ad-phone.php",
                 data={"idi": idi, "idphone": idphone, "teloverit": "777006248"}
             )
             tel_soup = BeautifulSoup(tel_response.text, "lxml")
