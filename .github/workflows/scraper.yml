@@ -1,0 +1,30 @@
+name: Bazos Scraper
+
+on:
+  schedule:
+    - cron: '0 6,9,12,15,18 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas requests beautifulsoup4 lxml anthropic gspread gspread-dataframe python-dotenv openpyxl
+
+      - name: Create Google credentials
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
+
+      - name: Run scraper
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python bazos_scraper.py
