@@ -30,7 +30,7 @@ session.cookies.set("btelefon", "777006248", domain=".bazos.cz")
 session.cookies.set("testcookie", "ano", domain=".bazos.cz")
 
 # ==================== API ====================
-os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
+os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY").strip()
 client = anthropic.Anthropic()
 
 # ==================== 1. SCRAPING (LOOP) ====================
