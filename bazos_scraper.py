@@ -7,11 +7,18 @@ import time
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+import gspread
+from gspread_dataframe import set_with_dataframe
 
-# ==================== NASTAVENÍ Z EXCELU ====================
-kriteria_excel = r"/Users/Sam/scripts/kriteria.xlsx"
-df_kriteria = pd.read_excel(kriteria_excel, "kriteria")
-final_path = r"/Users/Sam/scripts/bazos_ranked.xlsx"
+
+gc = gspread.service_account(filename="google_credentials.json")
+sh = gc.open("bazos_scraper_table")
+
+# ==================== NASTAVENÍ Z GOOGLE SHEETS ====================
+setup_ws = sh.worksheet("nastaveni")
+df_kriteria = pd.DataFrame(setup_ws.get_all_records())
+prompt_ws = sh.worksheet("prompt")
+prompt_template = prompt_ws.acell("A1").value
 top_n = 10
 
 # ==================== COOKIES ====================
@@ -23,8 +30,7 @@ session.cookies.set("btelefon", "777006248", domain=".bazos.cz")
 session.cookies.set("testcookie", "ano", domain=".bazos.cz")
 
 # ==================== API ====================
-load_dotenv("config.env")
-"ANTHROPIC_API_KEY" = os.getenv("ANTHROPIC_API_KEY")
+os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
 client = anthropic.Anthropic()
 
 # ==================== 1. SCRAPING (LOOP) ====================
@@ -42,7 +48,7 @@ for idx, row in df_kriteria.iterrows():
 
     print(f"\n=== Hledám: {hledat} ===")
 
-    for i in range(0, 60    , 20):
+    for i in range(0, 100, 20):
         url = f"https://nabytek.bazos.cz/{i}/?hledat={hledat}&rubriky={rubriky}&hlokalita={lokalita}&humkreis={humkreis}&cenaod={cenaod}&cenado={cenado}"
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "lxml")
@@ -79,21 +85,22 @@ df["psc"] = df["lokalita"].str.split("|").str[1].str.strip()
 df["full_url"] = "https://nabytek.bazos.cz" + df["url"]
 
 df = df.drop_duplicates(subset="full_url")
-print(f"Po deduplikace: {len(df)} inzerátů")
+print(f"Po deduplikaci: {len(df)} inzerátů")
 
-# ==================== deduplikace od posledního ====================
+# ==================== DEDUPLIKACE OD POSLEDNÍHO ====================
+vysledky_ws = sh.worksheet("vysledky")
+df_old = pd.DataFrame(vysledky_ws.get_all_records())
+
 seen_urls = []
-if os.path.exists(final_path):
-    df_old = pd.read_excel(final_path)
-    if "full_url" in df_old.columns: 
-        seen_urls = df_old["full_url"].tolist()
+if not df_old.empty and "full_url" in df_old.columns:
+    seen_urls = df_old["full_url"].tolist()
 
 df = df[~df["full_url"].isin(seen_urls)]
 print(f"Nových inzerátů: {len(df)}")
-if len(df) == 0: 
+
+if len(df) == 0:
     print("Žádné nové inzeráty. Končím.")
 else:
-
     # ==================== 3. DETAILY ====================
     detail_data = []
 
@@ -128,6 +135,7 @@ else:
         score = sum(1 for slovo in slova if slovo in text)
         score -= sum(1 for slovo in anti if slovo in text)
         return score
+
     df["keyword_score"] = df.apply(pocet_shod, axis=1)
     df = df.sort_values("keyword_score", ascending=False)
     print(f"\nKeyword scoring hotovo. Top 5:")
@@ -146,30 +154,12 @@ else:
             img_base64 = base64.b64encode(img_response.content).decode("utf-8")
             content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_base64}})
 
-        content.append({"type": "text", "text": f"""Jsi expert na český retro a vintage nábytek z období 1940-1970.
-    Hodnotíš inzeráty pro nákup a další prodej.
-
-    HLEDÁM:
-    - Český design 40.-70. léta (TON, Jitona, UP Závody, Halabala, Kropáček, Koželka)
-    - Masivní dřevo, překližka, ohýbané dřevo
-    - Funkcionalistický, bruselský styl, mid-century modern
-    - Kusy vhodné k renovaci s potenciálem zisku min. 1000 Kč
-
-    NECHCI:
-    - IKEA, moderní nábytek, lamino
-    - Těžce poškozené kusy (prohnilé, rozpadlé)
-    - Běžný nábytek bez designové hodnoty
-
-    Titulek: {row['titulek']}
-    Cena: {row['cena']}
-    Město: {row['mesto']}
-    Popis: {row['popis_detail']}
-
-    Odpověz POUZE ve formátu:
-    SCORE: X/10
-    DŮVOD: (krátké vysvětlení)
-    STAV DLE FOTKY: (co vidíš)
-    ODHADOVANÝ ZISK: (odhad v Kč po renovaci)"""})
+        content.append({"type": "text", "text": prompt_template.format(
+    titulek=row['titulek'],
+    cena=row['cena'],
+    mesto=row['mesto'],
+    popis=row['popis_detail']
+    )})
 
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -190,7 +180,7 @@ else:
     df_ranked = df.merge(df_scores, on="full_url", how="left")
     df_ranked = df_ranked.sort_values("score", ascending=False)
 
-    # ==================== 6. TELEFONY (TOP 3) ====================
+    # ==================== 6. TELEFONY (TOP 5) ====================
     for idx, row in df_ranked.head(5).iterrows():
         response = session.get(row["full_url"])
         soup = BeautifulSoup(response.text, "lxml")
@@ -215,16 +205,21 @@ else:
         print(f"Tel pro {row['titulek']}: {tel}")
         time.sleep(3)
 
-    # ==================== 7. EXPORT ====================
-    # ==================== 7. EXPORT ====================
-if os.path.exists(final_path):
-    df_old = pd.read_excel(final_path)
-    df_ranked = pd.concat([df_old, df_ranked])
-    df_ranked = df_ranked.drop_duplicates(subset="full_url", keep="last")
-    df_ranked = df_ranked.sort_values("score", ascending=False)
+    # ==================== 7. EXPORT DO GOOGLE SHEETS ====================
+    if not df_old.empty:
+        df_final = pd.concat([df_old, df_ranked])
+        df_final = df_final.drop_duplicates(subset="full_url", keep="last")
+        df_final = df_final.sort_values("score", ascending=False)
+    else:
+        df_final = df_ranked
 
-df_ranked.to_excel(final_path, index=False)
+    # Convert lists to strings for Google Sheets compatibility
+    if "foto_urls" in df_final.columns:
+        df_final["foto_urls"] = df_final["foto_urls"].astype(str)
+
+    vysledky_ws.clear()
+    set_with_dataframe(vysledky_ws, df_final)
 
     # ==================== 8. LOG ====================
-with open("/Users/Sam/scripts/bazos_log.txt", "a") as f:
-    f.write(f"{datetime.now()} | Inzerátů: {len(df)} | Scored: {len(df_scores)} | Top score: {df_ranked['score'].max()}\n")
+    with open("bazos_log.txt", "a") as f:
+        f.write(f"{datetime.now()} | Inzerátů: {len(df)} | Scored: {len(df_scores)} | Top score: {df_ranked['score'].max()}\n")
