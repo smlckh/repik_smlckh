@@ -228,6 +228,13 @@ else:
         time.sleep(3)
 
     # ==================== 7. EXPORT DO GOOGLE SHEETS ====================
+    # Preserve manual notes from old data
+    if not df_old.empty and "notes" in df_old.columns:
+        notes_map = df_old.set_index("full_url")["notes"].to_dict()
+        df_ranked["notes"] = df_ranked["full_url"].map(notes_map).fillna("")
+    elif "notes" not in df_ranked.columns:
+        df_ranked["notes"] = ""
+    
     if not df_old.empty:
         df_final = pd.concat([df_old, df_ranked])
         df_final["score"] = pd.to_numeric(df_final["score"], errors="coerce")
