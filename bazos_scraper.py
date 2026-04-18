@@ -164,7 +164,16 @@ else:
             for foto_url in foto_list:
                 img_response = requests.get(foto_url)
                 img_base64 = base64.b64encode(img_response.content).decode("utf-8")
-                content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_base64}})
+                
+                # Detect actual image type
+                if foto_url.lower().endswith(".png"):
+                    media_type = "image/png"
+                elif img_response.content[:4] == b'\x89PNG':
+                    media_type = "image/png"
+                else:
+                    media_type = "image/jpeg"
+                
+                content.append({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_base64}})
 
             content.append({"type": "text", "text": row["prompt"].format(
         titulek=row['titulek'],
@@ -186,7 +195,7 @@ else:
             time.sleep(1)
 
     df_scores = pd.DataFrame(scores)
-    df_scores["score"] = df_scores["ai_hodnoceni"].str.extract(r"SCORE: (\d+)/10")
+    df_scores["score"] = df_scores["ai_hodnoceni"].str.extract(r"SCORE: (\d+)/(?:10|100)")
     df_scores["score"] = df_scores["score"].astype(int)
 
     df_ranked = df.merge(df_scores, on="full_url", how="left")
